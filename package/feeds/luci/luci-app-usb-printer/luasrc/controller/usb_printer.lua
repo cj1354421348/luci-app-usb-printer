@@ -13,6 +13,7 @@ $Id$
 ]]--
 
 require("luci.sys")
+require("luci.i18n").loadc("usb-printer")
 
 module("luci.controller.usb_printer", package.seeall)
 
