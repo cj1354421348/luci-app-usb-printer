@@ -1,7 +1,8 @@
 #!/bin/bash
 # =============================================================
 # Build script for luci-app-usb-printer
-# 纯 Lua/Shell 包，无 C 代码，架构标记为 all
+# 使用 OpenWrt 24.10 官方 SDK 正规编译
+# Target: iStoreOS 24.10 / rockchip/armv8 / aarch64_generic
 # 用法：bash build.sh
 # =============================================================
 
@@ -10,125 +11,108 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 PKG_NAME="luci-app-usb-printer"
-PKG_VERSION="1.0"
-PKG_RELEASE="20230116"
-PKG_ARCH="all"
-PKG_FULL="${PKG_NAME}_${PKG_VERSION}-${PKG_RELEASE}_${PKG_ARCH}"
-
-SRC="${SCRIPT_DIR}/package/feeds/luci/luci-app-usb-printer"
-BUILD="${SCRIPT_DIR}/build/${PKG_FULL}"
+PKG_SRC="${SCRIPT_DIR}/package/feeds/luci/luci-app-usb-printer"
 OUTPUT="${SCRIPT_DIR}/output"
-PO2LMO="${SCRIPT_DIR}/tools/po2lmo.py"
+
+# iStoreOS 24.10 对应 OpenWrt 24.10 / rockchip/armv8
+SDK_VER="24.10.0"
+SDK_TARGET="rockchip/armv8"
+SDK_URL_BASE="https://downloads.openwrt.org/releases/${SDK_VER}/targets/${SDK_TARGET}"
+SDK_DIR="${SCRIPT_DIR}/openwrt-sdk"
+
+mkdir -p "${OUTPUT}"
 
 echo "========================================"
-echo " Building: ${PKG_FULL}.ipk"
+echo " luci-app-usb-printer SDK 编译脚本"
+echo " Target : iStoreOS 24.10 / rockchip/armv8"
+echo " SDK Dir: ${SDK_DIR}"
 echo "========================================"
 
-# ── 检查依赖 ────────────────────────────────
-if ! command -v python3 &>/dev/null; then
-    echo "错误：需要 python3（用于编译 .po → .lmo）"
+# ── 1. 下载并解压 SDK（有缓存则跳过）──────────
+if [ ! -d "${SDK_DIR}" ]; then
+    echo ""
+    echo "[1/4] 下载 OpenWrt ${SDK_VER} SDK（首次运行约需 5~10 分钟）..."
+
+    # 自动从 index 页面查找正确的 SDK 文件名
+    SDK_FILE=$(wget -q -O- "${SDK_URL_BASE}/" \
+        | grep -o 'openwrt-sdk-[^"]*Linux-x86_64\.tar\.xz' \
+        | head -1)
+
+    if [ -z "${SDK_FILE}" ]; then
+        echo "错误：无法自动获取 SDK 文件名，请手动访问："
+        echo "  ${SDK_URL_BASE}/"
+        echo "找到 openwrt-sdk-*.Linux-x86_64.tar.xz 文件名后，"
+        echo "手动执行：wget ${SDK_URL_BASE}/<文件名>"
+        exit 1
+    fi
+
+    echo "  找到：${SDK_FILE}"
+    TARBALL="${SCRIPT_DIR}/${SDK_FILE}"
+
+    [ -f "${TARBALL}" ] || wget -c "${SDK_URL_BASE}/${SDK_FILE}" -O "${TARBALL}"
+
+    echo "  解压中（xz 解压较慢，请耐心等待）..."
+    tar -xJf "${TARBALL}" -C "${SCRIPT_DIR}"
+
+    # 找到解压出的目录并改名
+    EXTRACTED=$(find "${SCRIPT_DIR}" -maxdepth 1 -name "openwrt-sdk-*" -type d | head -1)
+    if [ -z "${EXTRACTED}" ]; then
+        echo "错误：未找到解压出的 SDK 目录"
+        exit 1
+    fi
+    mv "${EXTRACTED}" "${SDK_DIR}"
+
+    echo ""
+    echo "  初始化 feeds（含 luci feed，约需 3~5 分钟）..."
+    cd "${SDK_DIR}"
+    ./scripts/feeds update -a
+    ./scripts/feeds install -a
+
+    echo "  SDK 初始化完成，下次运行将直接复用"
+else
+    echo ""
+    echo "[1/4] SDK 已存在，直接复用：${SDK_DIR}"
+fi
+
+# ── 2. 注入我们的包源码 ────────────────────────
+echo ""
+echo "[2/4] 注入包源码..."
+cd "${SDK_DIR}"
+
+# 放入 feeds/luci/ 目录（包 Makefile 的 include ../../luci.mk 从这里解析）
+rm -rf "feeds/luci/${PKG_NAME}"
+cp -r "${PKG_SRC}" "feeds/luci/${PKG_NAME}"
+
+# 在 package/feeds/luci/ 下创建符号链接（让 OpenWrt 构建系统能找到该包）
+mkdir -p "package/feeds/luci"
+rm -f "package/feeds/luci/${PKG_NAME}"
+ln -sf "$(realpath "feeds/luci/${PKG_NAME}")" \
+       "package/feeds/luci/${PKG_NAME}"
+
+echo "  符号链接：package/feeds/luci/${PKG_NAME}"
+echo "         → feeds/luci/${PKG_NAME}"
+
+# ── 3. 编译 ────────────────────────────────────
+echo ""
+echo "[3/4] 开始编译..."
+make "package/feeds/luci/${PKG_NAME}/compile" V=99
+
+# ── 4. 收集输出 IPK ────────────────────────────
+echo ""
+echo "[4/4] 收集输出..."
+IPK=$(find bin/ -name "${PKG_NAME}*.ipk" 2>/dev/null | sort | tail -1)
+
+if [ -z "${IPK}" ]; then
+    echo "错误：未找到输出 IPK，请检查上方编译日志"
     exit 1
 fi
-MKIPK="${SCRIPT_DIR}/tools/mkipk.py"
 
-# ── 清理旧构建 ──────────────────────────────
-rm -rf "${BUILD}"
-rm -f  "${OUTPUT}/${PKG_FULL}.ipk"   # 必须删旧文件，否则 ar 会 append 导致损坏
-mkdir -p "${BUILD}/control" "${BUILD}/data" "${OUTPUT}"
+cp "${IPK}" "${OUTPUT}/"
+RESULT="${OUTPUT}/$(basename "${IPK}")"
 
-# ── 1. 安装数据文件 ─────────────────────────
-echo "[1/5] 整理 data 文件..."
-
-install -Dm644 "${SRC}/root/etc/config/usb_printer" \
-               "${BUILD}/data/etc/config/usb_printer"
-
-install -Dm755 "${SRC}/root/etc/hotplug.d/usb/10-usb_printer" \
-               "${BUILD}/data/etc/hotplug.d/usb/10-usb_printer"
-
-install -Dm755 "${SRC}/root/etc/init.d/usb_printer" \
-               "${BUILD}/data/etc/init.d/usb_printer"
-
-install -Dm755 "${SRC}/root/etc/uci-defaults/luci-usb-printer" \
-               "${BUILD}/data/etc/uci-defaults/luci-usb-printer"
-
-install -Dm755 "${SRC}/root/usr/bin/detectlp" \
-               "${BUILD}/data/usr/bin/detectlp"
-
-install -Dm755 "${SRC}/root/usr/bin/usb_printer_hotplug" \
-               "${BUILD}/data/usr/bin/usb_printer_hotplug"
-
-install -Dm644 "${SRC}/luasrc/controller/usb_printer.lua" \
-               "${BUILD}/data/usr/lib/lua/luci/controller/usb_printer.lua"
-
-install -Dm644 "${SRC}/luasrc/model/cbi/usb_printer.lua" \
-               "${BUILD}/data/usr/lib/lua/luci/model/cbi/usb_printer.lua"
-
-# ── 2. 编译 i18n（.po → .lmo）───────────────
-echo "[2/5] 编译汉化文件..."
-
-PO_FILE="${SRC}/po/zh-cn/usb-printer.po"
-LMO_DIR="${BUILD}/data/usr/lib/lua/luci/i18n"
-LMO_FILE="${LMO_DIR}/usb-printer.zh-cn.lmo"
-
-mkdir -p "${LMO_DIR}"
-python3 "${PO2LMO}" "${PO_FILE}" "${LMO_FILE}"
-
-# ── 3. 生成 control 文件 ────────────────────
-echo "[3/5] 生成 control 文件..."
-
-INSTALLED_SIZE=$(du -sk "${BUILD}/data" | cut -f1)
-
-cat > "${BUILD}/control/control" << EOF
-Package: ${PKG_NAME}
-Version: ${PKG_VERSION}-${PKG_RELEASE}
-Depends: p910nd
-Architecture: ${PKG_ARCH}
-Installed-Size: ${INSTALLED_SIZE}
-Description: USB Printer Share via TCP/IP
- Shares multiple USB printers via TCP/IP using p910nd.
- Automatically binds printers by VID/PID, independent of /dev/usb/lp device order.
-EOF
-
-# postinst：安装后自动 enable 开机启动
-cat > "${BUILD}/control/postinst" << 'EOF'
-#!/bin/sh
-[ "${IPKG_NO_SCRIPT}" = "1" ] && exit 0
-[ -x /etc/init.d/usb_printer ] && /etc/init.d/usb_printer enable
-exit 0
-EOF
-chmod 755 "${BUILD}/control/postinst"
-
-# prerm：卸载前自动 disable
-cat > "${BUILD}/control/prerm" << 'EOF'
-#!/bin/sh
-[ -x /etc/init.d/usb_printer ] && /etc/init.d/usb_printer disable
-exit 0
-EOF
-chmod 755 "${BUILD}/control/prerm"
-
-# ── 4. 打 tar 包 ──────────────────────────────
-echo "[4/5] 打 tar 包..."
-
-echo "2.0" > "${BUILD}/debian-binary"
-
-# -cJf = xz 压缩（OpenWrt 21.02+ / iStoreOS 默认格式）
-tar -cJf "${BUILD}/control.tar.xz" -C "${BUILD}/control" .
-tar -cJf "${BUILD}/data.tar.xz"    -C "${BUILD}/data"    .
-
-# ── 5. 打 IPK ──────────────────────────────
-echo "[5/5] 生成 IPK..."
-
-# 用 mkipk.py 直接按字节写 ar 格式，避开 GNU ar 的符号表扩展头
-python3 "${MKIPK}" \
-    "${OUTPUT}/${PKG_FULL}.ipk" \
-    "${BUILD}/debian-binary"    \
-    "${BUILD}/control.tar.xz"   \
-    "${BUILD}/data.tar.xz"
-
-# ── 完成 ────────────────────────────────────
 echo ""
 echo "========================================"
 echo " 完成！"
-echo " 输出：${OUTPUT}/${PKG_FULL}.ipk"
-echo " 大小：$(du -sh "${OUTPUT}/${PKG_FULL}.ipk" | cut -f1)"
+echo " 输出：${RESULT}"
+echo " 大小：$(du -sh "${RESULT}" | cut -f1)"
 echo "========================================"
