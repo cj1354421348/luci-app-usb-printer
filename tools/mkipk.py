@@ -3,7 +3,7 @@
 mkipk.py — 直接按字节生成 OpenWrt opkg 兼容的 .ipk 文件
 绕开 GNU ar 的扩展头（符号表/长文件名），只输出最纯净的 ar 格式。
 
-用法：python3 mkipk.py <输出.ipk> <debian-binary> <control.tar.gz> <data.tar.gz>
+用法：python3 mkipk.py <输出.ipk> <debian-binary> <control.tar.xz> <data.tar.xz>
 
 ar 文件格式（每个成员）：
   全局魔数  "!<arch>\n"  8 字节

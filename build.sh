@@ -106,13 +106,14 @@ exit 0
 EOF
 chmod 755 "${BUILD}/control/prerm"
 
-# ── 4. 打 tar 包 ────────────────────────────
+# ── 4. 打 tar 包 ──────────────────────────────
 echo "[4/5] 打 tar 包..."
 
 echo "2.0" > "${BUILD}/debian-binary"
 
-tar -czf "${BUILD}/control.tar.gz" -C "${BUILD}/control" .
-tar -czf "${BUILD}/data.tar.gz"    -C "${BUILD}/data"    .
+# -cJf = xz 压缩（OpenWrt 21.02+ / iStoreOS 默认格式）
+tar -cJf "${BUILD}/control.tar.xz" -C "${BUILD}/control" .
+tar -cJf "${BUILD}/data.tar.xz"    -C "${BUILD}/data"    .
 
 # ── 5. 打 IPK ──────────────────────────────
 echo "[5/5] 生成 IPK..."
@@ -121,8 +122,8 @@ echo "[5/5] 生成 IPK..."
 python3 "${MKIPK}" \
     "${OUTPUT}/${PKG_FULL}.ipk" \
     "${BUILD}/debian-binary"    \
-    "${BUILD}/control.tar.gz"   \
-    "${BUILD}/data.tar.gz"
+    "${BUILD}/control.tar.xz"   \
+    "${BUILD}/data.tar.xz"
 
 # ── 完成 ────────────────────────────────────
 echo ""
