@@ -45,15 +45,16 @@ def make_member(name: str, data: bytes) -> bytes:
     return header + data + padding
 
 def create_ipk(output_path: str, debian_binary: str,
-               control_gz: str, data_gz: str):
+               control_arch: str, data_arch: str):
     def read(path):
         with open(path, "rb") as f:
             return f.read()
 
+    # 成员名直接取文件名（自动适配 .gz / .xz / .bz2）
     members = [
-        ("debian-binary",  read(debian_binary)),
-        ("control.tar.gz", read(control_gz)),
-        ("data.tar.gz",    read(data_gz)),
+        ("debian-binary",                  read(debian_binary)),
+        (os.path.basename(control_arch),   read(control_arch)),
+        (os.path.basename(data_arch),      read(data_arch)),
     ]
 
     with open(output_path, "wb") as f:
