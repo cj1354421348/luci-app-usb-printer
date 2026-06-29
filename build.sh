@@ -14,10 +14,11 @@ PKG_NAME="luci-app-usb-printer"
 PKG_SRC="${SCRIPT_DIR}/package/feeds/luci/luci-app-usb-printer"
 OUTPUT="${SCRIPT_DIR}/output"
 
-# iStoreOS 24.10 对应 OpenWrt 24.10 / rockchip/armv8
+# iStoreOS 24.10 = OpenWrt 24.10.0 / rockchip/armv8
 SDK_VER="24.10.0"
 SDK_TARGET="rockchip/armv8"
-SDK_URL_BASE="https://downloads.openwrt.org/releases/${SDK_VER}/targets/${SDK_TARGET}"
+SDK_FILE="openwrt-sdk-24.10.0-rockchip-armv8_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+SDK_URL="https://downloads.openwrt.org/releases/${SDK_VER}/targets/${SDK_TARGET}/${SDK_FILE}"
 SDK_DIR="${SCRIPT_DIR}/openwrt-sdk"
 
 mkdir -p "${OUTPUT}"
@@ -32,27 +33,16 @@ echo "========================================"
 if [ ! -d "${SDK_DIR}" ]; then
     echo ""
     echo "[1/4] 下载 OpenWrt ${SDK_VER} SDK（首次运行约需 5~10 分钟）..."
+    echo "  文件：${SDK_FILE}"
 
-    # 自动从 index 页面查找正确的 SDK 文件名
-    SDK_FILE=$(wget -q -O- "${SDK_URL_BASE}/" \
-        | grep -o 'openwrt-sdk-[^"]*Linux-x86_64\.tar\.xz' \
-        | head -1)
-
-    if [ -z "${SDK_FILE}" ]; then
-        echo "错误：无法自动获取 SDK 文件名，请手动访问："
-        echo "  ${SDK_URL_BASE}/"
-        echo "找到 openwrt-sdk-*.Linux-x86_64.tar.xz 文件名后，"
-        echo "手动执行：wget ${SDK_URL_BASE}/<文件名>"
-        exit 1
-    fi
-
-    echo "  找到：${SDK_FILE}"
     TARBALL="${SCRIPT_DIR}/${SDK_FILE}"
 
-    [ -f "${TARBALL}" ] || wget -c "${SDK_URL_BASE}/${SDK_FILE}" -O "${TARBALL}"
+    # 下载（断点续传）
+    [ -f "${TARBALL}" ] || wget -c "${SDK_URL}" -O "${TARBALL}"
 
-    echo "  解压中（xz 解压较慢，请耐心等待）..."
-    tar -xJf "${TARBALL}" -C "${SCRIPT_DIR}"
+    # 解压（tar.zst 格式，需要 zstd）
+    echo "  解压中..."
+    tar -xf "${TARBALL}" -C "${SCRIPT_DIR}"
 
     # 找到解压出的目录并改名
     EXTRACTED=$(find "${SCRIPT_DIR}" -maxdepth 1 -name "openwrt-sdk-*" -type d | head -1)
@@ -62,7 +52,6 @@ if [ ! -d "${SDK_DIR}" ]; then
     fi
     mv "${EXTRACTED}" "${SDK_DIR}"
 
-    echo ""
     echo "  初始化 feeds（含 luci feed，约需 3~5 分钟）..."
     cd "${SDK_DIR}"
     ./scripts/feeds update -a
