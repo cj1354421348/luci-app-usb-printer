@@ -29,10 +29,7 @@ if ! command -v python3 &>/dev/null; then
     echo "错误：需要 python3（用于编译 .po → .lmo）"
     exit 1
 fi
-if ! command -v ar &>/dev/null; then
-    echo "错误：需要 ar（binutils）"
-    exit 1
-fi
+MKIPK="${SCRIPT_DIR}/tools/mkipk.py"
 
 # ── 清理旧构建 ──────────────────────────────
 rm -rf "${BUILD}"
@@ -120,12 +117,12 @@ tar -czf "${BUILD}/data.tar.gz"    -C "${BUILD}/data"    .
 # ── 5. 打 IPK ──────────────────────────────
 echo "[5/5] 生成 IPK..."
 
-# cd 进 build 目录，确保 ar 成员名是纯文件名（debian-binary / control.tar.gz / data.tar.gz）
-# ar rc：r=替换/新增成员，c=强制新建归档（不 append 到旧文件）
-(
-  cd "${BUILD}"
-  ar rc "${OUTPUT}/${PKG_FULL}.ipk" debian-binary control.tar.gz data.tar.gz
-)
+# 用 mkipk.py 直接按字节写 ar 格式，避开 GNU ar 的符号表扩展头
+python3 "${MKIPK}" \
+    "${OUTPUT}/${PKG_FULL}.ipk" \
+    "${BUILD}/debian-binary"    \
+    "${BUILD}/control.tar.gz"   \
+    "${BUILD}/data.tar.gz"
 
 # ── 完成 ────────────────────────────────────
 echo ""
