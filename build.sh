@@ -36,6 +36,7 @@ fi
 
 # ── 清理旧构建 ──────────────────────────────
 rm -rf "${BUILD}"
+rm -f  "${OUTPUT}/${PKG_FULL}.ipk"   # 必须删旧文件，否则 ar 会 append 导致损坏
 mkdir -p "${BUILD}/control" "${BUILD}/data" "${OUTPUT}"
 
 # ── 1. 安装数据文件 ─────────────────────────
@@ -119,10 +120,12 @@ tar -czf "${BUILD}/data.tar.gz"    -C "${BUILD}/data"    .
 # ── 5. 打 IPK ──────────────────────────────
 echo "[5/5] 生成 IPK..."
 
-ar r "${OUTPUT}/${PKG_FULL}.ipk" \
-    "${BUILD}/debian-binary"   \
-    "${BUILD}/control.tar.gz"  \
-    "${BUILD}/data.tar.gz"
+# cd 进 build 目录，确保 ar 成员名是纯文件名（debian-binary / control.tar.gz / data.tar.gz）
+# ar rc：r=替换/新增成员，c=强制新建归档（不 append 到旧文件）
+(
+  cd "${BUILD}"
+  ar rc "${OUTPUT}/${PKG_FULL}.ipk" debian-binary control.tar.gz data.tar.gz
+)
 
 # ── 完成 ────────────────────────────────────
 echo ""
